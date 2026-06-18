@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Crediflex/Crediplazo</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; padding: 20px; display: flex; justify-content: center; align-items: flex-start; }
+        .container { background-color: #ffffff; padding: 30px 40px; border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); width: 100%; max-width: 650px; }
+        h1 { color: #1c3d5a; text-align: center; font-size: 26px; margin-bottom: 10px; }
+        p.subtitle { text-align: center; color: #666; margin-top: 0; margin-bottom: 30px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; color: #333; font-size: 14px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+        input:focus, select:focus { border-color: #0056b3; outline: none; }
+        button { width: 100%; padding: 15px; background-color: #0056b3; color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: background-color 0.3s; }
+        button:hover { background-color: #004494; }
+        .results-card { margin-top: 30px; padding: 25px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; display: none; }
+        .main-result { font-size: 24px; color: #0056b3; text-align: center; font-weight: bold; margin-bottom: 25px; }
+        .validation-item { padding: 12px 15px; margin-bottom: 12px; border-radius: 6px; font-weight: bold; display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
+        .valid { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .invalid { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Simulador de Crediflex/Crediplazo</h1>
+    <p class="subtitle">Simula tu préstamo en tiempo real</p>
+    
+    <div class="form-group">
+        <label for="tipoCredito">Tipo de Crédito</label>
+        <select id="tipoCredito" onchange="actualizarInfoCredito()">
+            <option value="crediflex">Crediflex</option>
+            <option value="credilazo">Crediplazo</option>
+        </select>
+    </div>
+    
+    <div id="infoCredito" style="text-align:center; margin-bottom: 20px; font-weight: bold; color: #0056b3;"></div>
+
+    <div class="grid-2">
+        <div class="form-group">
+            <label>Monto a Solicitar ($)</label>
+            <input type="text" inputmode="numeric" id="montoSolicitado" placeholder="Ej: 40,000" required>
+        </div>
+        <div class="form-group">
+            <label>Sueldo Mensual ($)</label>
+            <input type="text" inputmode="numeric" id="sueldoMensual" placeholder="Ej: 75,000" required>
+        </div>
+         <div class="form-group">
+            <label>Fecha de Ingreso</label>
+            <input type="date" id="fechaIngreso" required>
+        </div>
+        <div class="form-group">
+            <label>Ahorro en Planflex ($)</label>
+            <input type="text" inputmode="numeric" id="ahorroPlanflex" value="0">
+        </div>
+        <div class="form-group">
+            <label>Derechos no adquiridos ($)</label>
+            <input type="text" inputmode="numeric" id="derechosNoAdquiridos" value="0">
+        </div>
+         <div class="form-group">
+            <label>Desc. Mensuales Actuales ($)</label>
+            <input type="text" inputmode="numeric" id="descuentosActuales" value="0" required>
+        </div>
+    </div>
+
+    <button onclick="calcularViabilidad()">Calcular Viabilidad</button>
+
+    <div class="results-card" id="resultados">
+        <div class="main-result">
+            Descuento Quincenal: <span id="pagoTotalQuincenal">$0.00</span>
+        </div>
+        
+        <h4 style="margin-bottom: 15px; text-align: center; color: #1c3d5a;">Análisis de Viabilidad</h4>
+        <div id="valAntiguedad" class="validation-item"></div>
+        <div id="valMonto" class="validation-item"></div>
+        <div id="valCapacidad" class="validation-item"></div>
+    </div>
+</div>
+
+<script>
+    const TASA_ANUAL_PRESTAMO = 0.083;
+    const FACTOR_SEGURO = 0.24; // Factor de 0.24, se divide entre 1000 en la fórmula
+    const LIMITE_CAPACIDAD_PAGO = 0.30;
+    const moneyFormatter = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+    function parseFormattedNumber(value) {
+        return parseFloat(String(value).replace(/[^0-9.-]+/g,"")) || 0;
+    }
+
+    function formatInputAsCurrency(inputElement) {
+        const value = parseFormattedNumber(inputElement.value);
+        if (isNaN(value)) return;
+        inputElement.value = new Intl.NumberFormat('es-MX').format(value);
+    }
+    
+    document.querySelectorAll('input[inputmode="numeric"]').forEach(input => {
+        input.addEventListener('blur', () => formatInputAsCurrency(input));
+    });
+
+    function actualizarInfoCredito() {
+        const tipoCredito = document.getElementById('tipoCredito').value;
+        const infoDiv = document.getElementById('infoCredito');
+        
+        if (tipoCredito === 'crediflex') {
+            infoDiv.innerText = "Plazo: 36 Quincenas | Antigüedad Mínima: 1 año";
+        } else {
+            infoDiv.innerText = "Plazo: 72 Quincenas | Antigüedad Mínima: 3 años";
+        }
+        document.getElementById('resultados').style.display = 'none';
+    }
+
+    function PMT(rate, nper, pv) {
+        if (rate === 0) return pv / nper;
+        return (rate * pv) / (1 - Math.pow(1 + rate, -nper));
+    }
+    
+    function calcularViabilidad() {
+        const montoSolicitado = parseFormattedNumber(document.getElementById('montoSolicitado').value);
+        const sueldoMensual = parseFormattedNumber(document.getElementById('sueldoMensual').value);
+        const fechaIngreso = document.getElementById('fechaIngreso').value;
+        const descuentosActuales = parseFormattedNumber(document.getElementById('descuentosActuales').value);
+        const ahorroPlanflex = parseFormattedNumber(document.getElementById('ahorroPlanflex').value);
+        const derechosNoAdquiridos = parseFormattedNumber(document.getElementById('derechosNoAdquiridos').value);
+
+        if (montoSolicitado <= 0 || sueldoMensual <= 0 || !fechaIngreso) {
+            alert("Por favor, completa todos los campos de monto, sueldo y fecha de ingreso.");
+            return;
+        }
+
+        const today = new Date();
+        const startDate = new Date(fechaIngreso);
+        const antiguedad = (today.getTime() - startDate.getTime()) / (1000 * 3600 * 24 * 365.25);
+        
+        const tipoCredito = document.getElementById('tipoCredito').value;
+        let plazoQuincenas, antiguedadMinima;
+        if (tipoCredito === 'crediflex') {
+            plazoQuincenas = 36;
+            antiguedadMinima = 1;
+        } else {
+            plazoQuincenas = 72;
+            antiguedadMinima = 3;
+        }
+        
+        let pagoTotalQuincenal;
+        const tasaQuincenalPrestamo = TASA_ANUAL_PRESTAMO / 24;
+
+        if (tipoCredito === 'credilazo') {
+            // --- Cálculo para Crediplazo con Seguro Dinámico (Goal Seek) ---
+            let pagoEstimado = PMT(tasaQuincenalPrestamo, plazoQuincenas, montoSolicitado); // Estimación inicial
+            for(let i = 0; i < 10; i++) { // Iterar para mayor precisión
+                let saldo = montoSolicitado;
+                let costoTotal = montoSolicitado;
+                for(let j = 0; j < plazoQuincenas; j++) {
+                    let interesPeriodo = saldo * tasaQuincenalPrestamo;
+                    let seguroPeriodo = saldo * (FACTOR_SEGURO / 1000);
+                    costoTotal += interesPeriodo + seguroPeriodo;
+                    saldo -= (pagoEstimado - interesPeriodo - seguroPeriodo);
+                }
+                pagoEstimado = costoTotal / plazoQuincenas;
+            }
+            pagoTotalQuincenal = pagoEstimado;
+        } else {
+            // --- Cálculo para Crediflex (sin seguro) ---
+            pagoTotalQuincenal = PMT(tasaQuincenalPrestamo, plazoQuincenas, montoSolicitado);
+        }
+        
+        document.getElementById('pagoTotalQuincenal').innerText = moneyFormatter.format(pagoTotalQuincenal);
+
+        // --- VALIDACIONES ---
+        const esViableAntiguedad = antiguedad >= antiguedadMinima;
+        let msjAntiguedad = `Cumple: ${antiguedad.toFixed(2)} años (min. ${antiguedadMinima})`;
+        if (!esViableAntiguedad) msjAntiguedad = `No cumple: ${antiguedad.toFixed(2)} años (min. ${antiguedadMinima})`;
+
+        let montoMaximoPermitido = 0;
+        const ahorroNetoPlanflex = ahorroPlanflex - derechosNoAdquiridos;
+
+        if (esViableAntiguedad) {
+            if (tipoCredito === 'crediflex') {
+                if (antiguedad < 2) {
+                    montoMaximoPermitido = sueldoMensual;
+                } else {
+                    montoMaximoPermitido = sueldoMensual + ahorroNetoPlanflex;
+                }
+            } else { // Crediplazo
+                montoMaximoPermitido = sueldoMensual + ahorroNetoPlanflex;
+            }
+        }
+        const esViableMonto = montoSolicitado <= montoMaximoPermitido;
+
+        const limiteDescuentoMensual = sueldoMensual * LIMITE_CAPACIDAD_PAGO;
+        const impactoMensualNuevoCredito = pagoTotalQuincenal * 2;
+        const totalDescuentosProyectados = impactoMensualNuevoCredito + descuentosActuales;
+        const esViableCapacidad = totalDescuentosProyectados <= limiteDescuentoMensual;
+
+        mostrarResultado('valAntiguedad', esViableAntiguedad, msjAntiguedad);
+        mostrarResultado('valMonto', esViableMonto, `Límite de monto (Máx: ${moneyFormatter.format(montoMaximoPermitido)})`);
+        mostrarResultado('valCapacidad', esViableCapacidad, `Capacidad de pago (Disponible: ${moneyFormatter.format(limiteDescuentoMensual - descuentosActuales)})`);
+        
+        document.getElementById('resultados').style.display = 'block';
+    }
+
+    function mostrarResultado(elementId, esValido, mensaje) {
+        const uiElement = document.getElementById(elementId);
+        uiElement.className = esValido ? 'validation-item valid' : 'validation-item invalid';
+        uiElement.innerHTML = `<span>${mensaje}</span> <span>${esValido ? '✅' : '❌'}</span>`;
+    }
+
+    document.addEventListener('DOMContentLoaded', actualizarInfoCredito);
+</script>
+
+</body>
+</html>
+
